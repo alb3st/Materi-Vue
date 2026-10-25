@@ -3,7 +3,7 @@
 > Belajar Vue.js dari nol lewat satu proyek nyata: **Aplikasi To-Do List**.
 > Cocok untuk mahasiswa semester 1 yang sudah mengenal dasar HTML, CSS, dan JavaScript.
 
-**Versi:** Vue 3 (Options API) · **Diperbarui:** Oktober 2026 · **Penyusun:** (isi nama Anda)
+**Versi:** Vue 3 (Options API) · **Diperbarui:** Oktober 2026 · **Penyusun:** Aldian Umbu
 
 ---
 
