@@ -21,10 +21,11 @@
 7. [Langkah 7: Komponen TaskAlert](#langkah-7-komponen-taskalert)
 8. [Langkah 8: Komponen TaskForm](#langkah-8-komponen-taskform)
 9. [Langkah 9: Watchers dan Penyimpanan Data](#langkah-9-watchers-dan-penyimpanan-data)
-10. [Langkah 10: Pengujian Akhir](#langkah-10-pengujian-akhir)
-11. [Peta Konsep dan Kriteria Penilaian](#11-peta-konsep-dan-kriteria-penilaian)
-12. [Kesalahan yang Sering Terjadi](#12-kesalahan-yang-sering-terjadi)
-13. [Latihan Pengembangan](#13-latihan-pengembangan)
+10. [Memahami Computed, Methods, dan Watch](#memahami-computed-methods-dan-watch-di-appvue)
+11. [Langkah 10: Pengujian Akhir](#langkah-10-pengujian-akhir)
+12. [Peta Konsep dan Kriteria Penilaian](#11-peta-konsep-dan-kriteria-penilaian)
+13. [Kesalahan yang Sering Terjadi](#12-kesalahan-yang-sering-terjadi)
+14. [Latihan Pengembangan](#13-latihan-pengembangan)
 
 ---
 
@@ -1218,8 +1219,374 @@ export default {
 4. **Mereset data:** di tab Console, ketik `localStorage.clear()` lalu refresh, dan data kembali ke 3 tugas awal.
 
 ---
+## Langkah 10: Memahami Computed, Methods, dan Watch di App.vue
+---
 
-## Langkah 10: Pengujian Akhir
+Sekarang `App.vue` Anda sudah berisi lima "peran": `data`, `computed`, `methods`, `watch`, dan komunikasi dengan komponen anak. Bagian ini menjelaskan **siapa mengerjakan apa**, memakai satu analogi: **warung makan**.
+
+### Analogi: Warung Makan
+
+| Di warung | Di `App.vue` | Perannya |
+|---|---|---|
+| **Stok bahan di gudang** | `data()` → `tasks`, `filter` | Barang asli yang disimpan |
+| **Papan "sisa porsi hari ini"** | `computed` | Angka yang **dihitung otomatis dari stok**, hanya untuk dilihat |
+| **Pelayan** | `methods` | **Bekerja** ketika dipanggil: menambah, mencoret, membuang |
+| **Satpam / CCTV** | `watch` | **Mengawasi** stok. Begitu stok berubah, ia melakukan sesuatu di luar |
+| **Titipan pemilik ke pelayan** | `props` (dari induk ke anak) | Data yang diberikan induk |
+| **Pelayan melapor ke pemilik** | `$emit` (dari anak ke induk) | Kabar bahwa sesuatu terjadi |
+
+Tiga peran utamanya berbeda tugas:
+
+```
+Papan sisa porsi  →  MELAPORKAN   (tidak mengubah stok)
+Pelayan           →  MENGERJAKAN  (mengubah stok, kalau disuruh)
+Satpam            →  MEREAKSI     (bergerak sendiri saat stok berubah)
+```
+
+---
+
+### 1. Data = Stok di Gudang
+
+```js
+data() {
+  return {
+    tasks: loadTasks(),   // daftar tugas
+    filter: 'all'         // filter yang dipilih
+  }
+}
+```
+
+Hanya ada **dua** data di `App.vue`. Semua yang lain (jumlah, daftar tersaring, pesan) **diturunkan** dari dua data ini.
+
+> 💡 **Aturan hemat data:** jangan simpan sesuatu di `data()` kalau nilainya bisa dihitung dari data lain. Contohnya, `totalTasks` tidak disimpan sebagai data, karena sudah bisa dihitung dari `tasks.length`.
+
+---
+
+### 2. Computed = Papan "Sisa Porsi"
+
+Bayangkan papan di dinding warung bertuliskan **"Sisa porsi: 7"**.
+
+- Pemilik **tidak menulis angka itu sendiri** setiap ada pembeli. Angkanya dihitung otomatis dari stok.
+- Papan itu **tidak boleh dipakai untuk mengambil atau membuang makanan**. Ia hanya menampilkan hasil hitungan.
+- Kalau stok tidak berubah, papan **tidak menghitung ulang**. Ia mengingat hasil terakhir (*caching*).
+
+Di `App.vue`:
+
+```js
+computed: {
+  totalTasks()     { return this.tasks.length },
+  activeTasks()    { return this.tasks.filter(t => !t.completed).length },
+  completedTasks() { return this.tasks.filter(t => t.completed).length },
+  filteredTasks()  {
+    if (this.filter === 'active')    return this.tasks.filter(t => !t.completed)
+    if (this.filter === 'completed') return this.tasks.filter(t => t.completed)
+    return this.tasks
+  }
+}
+```
+
+| Papan warung | Computed di To-Do | Dipakai oleh |
+|---|---|---|
+| "Total menu" | `totalTasks` | `TaskStats`, `TaskAlert` |
+| "Sisa porsi" | `activeTasks` | `TaskStats`, `TaskAlert`, judul tab |
+| "Sudah terjual" | `completedTasks` | `TaskStats` |
+| "Menu yang ditampilkan sesuai pilihan pelanggan" | `filteredTasks` | `TaskList` |
+
+**Ciri computed:**
+- Selalu punya **`return`**.
+- Dipanggil **tanpa kurung** di template: `{{ activeTasks }}`.
+- **Tidak mengubah data.** Hanya menghitung dari data lain.
+- Otomatis menghitung ulang **hanya jika data yang dipakainya berubah**.
+
+---
+
+### 3. Methods = Pelayan
+
+Pelayan **tidak bekerja sendiri**. Ia bergerak **hanya ketika dipanggil** ("Mas, tolong catat pesanan ini!"). Setiap dipanggil, ia bekerja dari awal.
+
+Di `App.vue`:
+
+```js
+methods: {
+  addTask(text) {
+    this.tasks.push({ id: Date.now(), text, completed: false })
+  },
+  toggleTask(id) {
+    const task = this.tasks.find(t => t.id === id)
+    if (task) task.completed = !task.completed
+  },
+  deleteTask(id) {
+    this.tasks = this.tasks.filter(t => t.id !== id)
+  }
+}
+```
+
+| Panggilan ke pelayan | Method | Dipanggil dari |
+|---|---|---|
+| "Tolong catat pesanan baru" | `addTask` | Event `add-task` dari `TaskForm` |
+| "Tolong coret pesanan nomor 2" | `toggleTask` | Event `toggle` dari `TaskItem` (lewat `TaskList`) |
+| "Tolong buang pesanan nomor 3" | `deleteTask` | Event `delete` dari `TaskItem` (lewat `TaskList`) |
+
+**Siapa yang "memanggil" pelayan?** Pengguna, lewat event: klik tombol, centang checkbox, tekan Enter. Di kode:
+
+```vue
+<TaskList @toggle="toggleTask" @delete="deleteTask" />
+```
+
+Artinya: *"Kalau ada kabar `toggle`, panggil pelayan `toggleTask`."*
+
+**Ciri method:**
+- Dijalankan karena ada **kejadian** (klik, submit, dll.).
+- **Boleh mengubah data** (`this.tasks...`).
+- Tidak menyimpan hasil. Setiap dipanggil, ia bekerja lagi.
+
+---
+
+### 4. Watch = Satpam / CCTV
+
+Satpam duduk diam mengawasi gudang. **Begitu stok berubah**, ia langsung bereaksi, walau tidak ada yang memanggilnya.
+
+Reaksinya biasanya urusan **di luar hitungan stok**: mencatat ke buku besar, mengganti papan nama toko, membunyikan alarm.
+
+Di `App.vue` ada dua satpam:
+
+```js
+watch: {
+  tasks: {                       // Satpam 1: mengawasi daftar tugas
+    handler(newTasks) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(newTasks))
+    },
+    deep: true
+  },
+  activeTasks: {                 // Satpam 2: mengawasi jumlah tugas aktif
+    handler(count) {
+      document.title = count > 0 ? `(${count}) To-Do List` : 'To-Do List'
+    },
+    immediate: true
+  }
+}
+```
+
+| Satpam | Mengawasi | Saat berubah, ia... |
+|---|---|---|
+| Satpam 1 | `tasks` | **Mencatat ke buku besar** (menyimpan ke `localStorage`) |
+| Satpam 2 | `activeTasks` | **Mengganti papan nama** (judul tab menjadi `(2) To-Do List`) |
+
+Dua opsi yang sering membingungkan:
+
+| Opsi | Analogi |
+|---|---|
+| `deep: true` | Satpam **memeriksa isi tiap kotak**, bukan hanya jumlah kotaknya. Tanpa ini, saat satu tugas dicentang (isi kotak berubah, jumlah kotak tetap), satpam tidak sadar |
+| `immediate: true` | Satpam **langsung memeriksa sekali saat warung buka**, tidak menunggu ada perubahan dulu |
+
+**Ciri watch:**
+- Berjalan **otomatis** saat data yang diawasi berubah.
+- Untuk **efek samping**: menyimpan, mengubah judul tab, memanggil server.
+- Nama watcher **harus sama persis** dengan nama data yang diawasi.
+- Tidak menghasilkan nilai (tidak ada `return` untuk ditampilkan).
+
+---
+
+### 5. Props dan Emit = Komunikasi di Warung
+
+`App.vue` adalah **pemilik warung**. Komponen anak adalah **karyawan**.
+
+| | Props | Emit |
+|---|---|---|
+| Arah | Induk → anak | Anak → induk |
+| Analogi | Pemilik **menitipkan** data ke karyawan | Karyawan **melapor** ke pemilik |
+| Contoh | `:total="totalTasks"` ke `TaskStats` | `$emit('toggle', task.id)` dari `TaskItem` |
+
+Karyawan tidak boleh mengubah stok sendiri. Ia hanya **melapor**, lalu pemilik (lewat method) yang memutuskan dan mengubah data. Inilah aturan **props turun, event naik**.
+
+---
+
+### Satu Kejadian, Semua Peran Bekerja
+
+Ikuti satu kejadian: **pengguna mencentang "Belajar Vue.js"**.
+
+```
+1. Pengguna mencentang checkbox di TaskItem
+        ↓
+2. EMIT: TaskItem melapor "toggle" membawa id tugas
+        ↓
+3. METHOD toggleTask dipanggil (pelayan mencoret pesanan)
+   → tasks[0].completed berubah menjadi true     ← DATA berubah
+        ↓
+4. Dua hal terjadi sebagai REAKSI atas perubahan data:
+   • COMPUTED menghitung ulang → activeTasks: 3 menjadi 2, completedTasks: 0 menjadi 1
+   • WATCH bereaksi            → simpan ke localStorage, judul tab menjadi "(2) To-Do List"
+        ↓
+5. TAMPILAN diperbarui oleh Vue (props baru mengalir ke komponen anak)
+```
+
+Pembagian tugasnya:
+
+- **Method** yang **mengubah data**.
+- **Computed** yang **menghitung** hasil dari data.
+- **Watch** yang **bereaksi** terhadap perubahan.
+
+> 💡 Method selalu bergerak **lebih dulu**, karena ia yang mengubah data. Computed dan watch hanya **bereaksi** setelahnya. Urutan *di antara* computed dan watch tidak perlu dihafalkan.
+
+---
+
+### Cara Memilih: Tiga Pertanyaan
+
+```
+Apakah hasilnya hanya untuk DITAMPILKAN / dihitung dari data lain?
+        │
+        ├── Ya  ──►  COMPUTED
+        │
+        └── Tidak
+              │
+              Apakah dijalankan karena PENGGUNA melakukan sesuatu (klik, submit)?
+              │
+              ├── Ya  ──►  METHOD
+              │
+              └── Tidak, harus jalan OTOMATIS saat data berubah
+                          (menyimpan, ubah judul, panggil API)
+                          ──►  WATCH
+```
+
+### Tabel Ringkas
+
+| | Computed | Method | Watch |
+|---|---|---|---|
+| Analogi | Papan sisa porsi | Pelayan | Satpam |
+| Kapan jalan? | Otomatis, jika data yang dipakai berubah | Saat **dipanggil** | Otomatis, jika data yang diawasi berubah |
+| Tugas | Menghitung nilai | Mengerjakan aksi | Bereaksi dengan efek samping |
+| Menyimpan hasil (cache)? | ✅ Ya | ❌ Tidak | — |
+| Boleh mengubah data? | ❌ Jangan | ✅ Boleh | ✅ Boleh (hati-hati) |
+| Perlu `return`? | ✅ Ya | Tergantung | ❌ Tidak |
+| Dipanggil di template | `{{ activeTasks }}` (tanpa kurung) | `@click="deleteTask"` atau `{{ fn() }}` | Tidak dipanggil, jalan sendiri |
+| Contoh di To-Do | `activeTasks`, `filteredTasks` | `addTask`, `toggleTask`, `deleteTask` | Simpan ke `localStorage`, judul tab |
+
+---
+
+### Pertanyaan yang Sering Muncul
+
+**1. "Kenapa `activeTasks` tidak dibuat method saja?"**
+Bisa, hasilnya sama. Tetapi method **menghitung ulang setiap dipanggil**, sedangkan computed **hanya menghitung ulang kalau `tasks` berubah**. `activeTasks` dipakai di beberapa tempat (`TaskAlert`, `TaskStats`, judul tab). Dengan computed, dihitung sekali lalu dipakai bersama.
+*Analogi:* papan sisa porsi dilihat 20 pelanggan. Lebih hemat kalau dihitung sekali daripada 20 kali.
+
+**2. "Kenapa menyimpan ke `localStorage` tidak ditaruh di computed?"**
+Karena menyimpan adalah **aksi**, bukan **hitungan**. Papan sisa porsi hanya boleh menampilkan angka, bukan menulis di buku besar. Pekerjaan seperti itu milik satpam.
+
+**3. "Kenapa menyimpan tidak di dalam `addTask`, `toggleTask`, dan `deleteTask` saja?"**
+Bisa, tetapi kode simpan harus ditulis **tiga kali**. Kalau nanti ada method keempat (misalnya "hapus semua yang selesai"), mudah lupa menambahkannya. Dengan satpam, **apa pun yang mengubah `tasks`** otomatis tersimpan.
+
+**4. "Kenapa `activeTasks` diawasi watcher, padahal sudah computed?"**
+Computed hanya **menghitung**. Mengubah `document.title` adalah efek di luar komponen, jadi butuh watcher untuk **bereaksi** pada hasil hitungan itu.
+
+**5. "Apa bedanya computed dan watch? Keduanya otomatis."**
+Computed **menghasilkan nilai** (ada `return`) yang bisa ditampilkan. Watch **melakukan tindakan** tanpa menghasilkan nilai. Kalau pertanyaannya "berapa?", pakai computed. Kalau pertanyaannya "lalu lakukan apa?", pakai watch.
+
+**6. "Kenapa `filteredTasks` computed, bukan method?"**
+Hasilnya adalah **nilai turunan** dari `tasks` dan `filter`, hanya untuk ditampilkan, dan tidak mengubah apa pun. Itu ciri khas computed.
+
+---
+
+### 🧪 Percobaan: Melihat Ketiganya Bekerja
+
+Tempel baris `console.log` ini **sementara** di `App.vue`, lalu buka **Console (F12)**.
+
+```js
+computed: {
+  activeTasks() {
+    console.log('🧮 computed activeTasks dihitung')
+    return this.tasks.filter(t => !t.completed).length
+  }
+},
+methods: {
+  toggleTask(id) {
+    console.log('🧑‍🍳 method toggleTask dipanggil')
+    const task = this.tasks.find(t => t.id === id)
+    if (task) task.completed = !task.completed
+  }
+},
+watch: {
+  tasks: {
+    handler(newTasks) {
+      console.log('👮 watch tasks: menyimpan...')
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(newTasks))
+    },
+    deep: true
+  }
+}
+```
+
+Centang satu tugas, lalu baca log di Console. Ketiga pesan akan muncul:
+
+```
+🧑‍🍳 method toggleTask dipanggil     ← selalu paling pertama
+🧮 computed activeTasks dihitung   ← urutan dua baris ini
+👮 watch tasks: menyimpan...       ← bisa saling bertukar
+```
+
+**Yang perlu diperhatikan:**
+- Method **selalu** muncul lebih dulu, karena ia yang mengubah data.
+- Computed dan watch muncul **sesudahnya**. Urutan di antara keduanya bisa berbeda tergantung cara Vue menjadwalkan pekerjaan. Itu normal dan bukan kesalahan.
+
+**Eksperimen susulan:**
+
+1. **Membuktikan caching.** Tulis `{{ activeTasks }}` dua kali di template. Log computed tetap muncul **satu kali**. Lalu ubah menjadi method dan panggil dua kali, log muncul **dua kali**.
+2. **Membuktikan `deep`.** Hapus `deep: true`, lalu centang tugas. Log satpam **tidak muncul**, dan data tidak tersimpan. Kembalikan `deep: true`.
+3. **Membuktikan `immediate`.** Hapus `immediate: true` pada watcher `activeTasks`, lalu refresh. Judul tab tidak langsung terisi jumlah tugas sampai ada perubahan. Kembalikan setelah mencoba.
+
+> ⚠️ **Hapus semua `console.log`** setelah percobaan selesai.
+
+---
+
+### Kesalahan Umum
+
+| Kesalahan | Kenapa keliru | Perbaikan |
+|---|---|---|
+| Menulis `{{ activeTasks() }}` (pakai kurung) padahal computed | Computed dipakai seperti **data**, bukan fungsi | `{{ activeTasks }}` |
+| Lupa `return` di computed | Papan sisa porsi kosong, tidak menampilkan apa pun | Tambahkan `return` |
+| Mengubah data di dalam computed | Papan tidak boleh mengambil makanan dari gudang | Pindahkan ke method |
+| Memakai watch untuk hal yang bisa dihitung | Terlalu rumit dan rawan bug | Pakai computed |
+| Nama watcher beda dengan nama data | Satpam menjaga gudang yang salah | Samakan dengan nama data persis |
+| Lupa `deep: true` pada array/objek | Satpam hanya menghitung jumlah kotak, bukan isinya | Tambahkan `deep: true` |
+| Menyimpan nilai turunan di `data()` | Harus diperbarui manual dan mudah tidak sinkron | Jadikan computed |
+| Memanggil method di template tanpa perlu, misalnya `{{ hitung() }}` untuk nilai tampilan | Dijalankan ulang setiap tampilan diperbarui | Jadikan computed |
+
+---
+
+### Kuis Cepat
+
+Sebutkan: **computed, method, atau watch?**
+
+1. Menghitung jumlah tugas yang sudah selesai.
+2. Menghapus tugas saat tombol **Hapus** diklik.
+3. Menyimpan data ke `localStorage` setiap daftar tugas berubah.
+4. Menyaring tugas sesuai tombol filter yang dipilih.
+5. Mengubah judul tab saat jumlah tugas aktif berubah.
+6. Menambah tugas baru setelah form dikirim.
+7. Menampilkan pesan *"Tugas minimal 3 karakter"* berdasarkan isi input.
+
+<details>
+<summary>Lihat jawaban</summary>
+
+1. **Computed** (`completedTasks`): menghitung nilai turunan.
+2. **Method** (`deleteTask`): aksi karena klik pengguna.
+3. **Watch** (`tasks`): efek samping otomatis saat data berubah.
+4. **Computed** (`filteredTasks`): nilai turunan dari `tasks` dan `filter`.
+5. **Watch** (`activeTasks`): efek di luar komponen.
+6. **Method** (`addTask`): aksi yang mengubah data.
+7. **Method** (`validate`) yang dipanggil saat submit. Pesannya disimpan di data `errorMessage` dan ditampilkan dengan `v-if`.
+</details>
+
+---
+
+### Ringkasan dalam Tiga Kalimat
+
+> **Method itu pelayan:** bergerak kalau disuruh, dan boleh mengubah stok.
+> **Computed itu papan hitungan:** otomatis menghitung dari stok, hanya untuk dilihat.
+> **Watch itu satpam:** otomatis bereaksi kalau stok berubah, untuk urusan di luar hitungan.
+
+---
+
+## Langkah 11: Pengujian Akhir
 
 Jalankan daftar periksa ini sebelum mengumpulkan atau mendemokan.
 
